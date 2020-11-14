@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Extracting AFDs and sorting by time
 """
@@ -13,12 +12,7 @@ from datetime import datetime
 #url = "https://kamala.cod.edu/mi/latest.fxus63.KGRR.html"
 #url = "https://forecast.weather.gov/product.php?site=GRR&issuedby=GRR&product=AFD&format=ci&version=1&glossary=0"
 
-def issueTime(section):
-    reg = re.compile('\d\d\d.*\s20\d\d')
-    m = re.search(reg, section)
-    dateStr = m.group(0)
-    issued = datetime.strptime(dateStr, "%H%M %p %Z %a %b %d %Y")
-    return str(issued)
+
 
 def cleanText(srcFile,dstFile):
     stripped = lambda s: "".join(i for i in s if 31 < ord(i) < 127)
@@ -30,114 +24,98 @@ def cleanText(srcFile,dstFile):
     dst.close()
     infile.close()
 
-def identifyFcstr(fcstrSec):
-    dictFcstrs = {}
-    mets = fcstrSec.split('\n')
-    for metName in range(0,len(mets)):
-        fcstLine = mets[metName]
-        ids = fcstLine.split('...')
-        if len(ids) > 1:
-            dictFcstrs[ids[0]] = ids[1]
-    if 'SHORT TERM' in dictFcstrs:
-        dictFcstrs['DISCUSSION'] = 'NA'
-    return dictFcstrs
+
+def get_line(section,searchstr):
+    arr = section.split("\n")
+    for a in range(0,len(arr)):
+        test = arr[a]
+        if searchstr in test:
+            return test
+        else:
+            pass
+    return None
 
 
+def get_line_year(section):
+    """
+    Creates strings of current and previous years in order
+    to find the line of text with date/time information. Previous year is
+    included to ensure a complete list when AFDs straddle two years on and 
+    immediately after New Year's Day.
+    """
+    current_year = datetime.now().strftime('%Y')
+    previous_year = str(int(current_year) - 1)
+    arr = section.split("\n")
+    for a in range(0,len(arr)):
+        test = arr[a]
+        if(current_year in test):
+            return test
+        elif(previous_year in test):
+            return test
+        else:
+            pass
+    return None
 
-from bs4 import BeautifulSoup
+try:
+    from bs4 import BeautifulSoup
+except:
+    print("sant import!")
+    
 import requests
+discussions =[]
+
 
 for version in range(1,50):
-    if version < 10:
-        verStr = "0" + str(version)
-    else:
-        verStr = str(version)
-    
     url = "https://forecast.weather.gov/product.php?site=GRR&issuedby=GRR&product=AFD&format=ci&version=" + str(version) + "&glossary=0"
-    page = requests.get(url)
-    soup = BeautifulSoup(page.content, 'html.parser')
-    nws = soup.pre
-    nwsStr = nws.string
-#section_lines = [line for line in nwsStr.split('\n') if "DISCUSSION" in line]
-#print section_lines
-    sections = nws.string.split("&&")
-
-srcFile = '2019-02-AFDs.txt'
-fixedFile = 'fixed2.txt'
-cleanText(srcFile, fixedFile)
-separator = '  ----------------------  '
-masterList = []
-fnum = {'04': 'Felver', 'MJS': 'Sekelsky', 'TJT': 'Turnage', 'Borchardt': 'Borchardt',
-        'Ostuno': 'Ostuno' }
-
-if 2 > 1:
-    again = open(fixedFile, 'r')
-    data_read = again.read()
-    dataStr = str(data_read)
-    #print(dataStr)
-    afds = dataStr.split('AFDGRR')
-    for a in range(0,len(afds)):
-        thisAFD = afds[a]
-        getfids = thisAFD.split("$$")
-        if len(getfids) > 0:
-            fids = getfids[-1]
-            fdict = identifyFcstr(fids)
-            
-            justAFD = getfids[0]
-            getSecs = thisAFD.split("&&")
-            for sec in range(0,len(getSecs)):
-                s = getSecs[sec]
-                if len(getSecs[sec]) > 0:  
-                    if re.compile("\.UPDATE...").search(s,1):
-                        tStamp = issueTime(s)
-                        secType = '4-update'
-                        fcstr = fdict['UPDATE']
-                        masterList.append([tStamp,secType,fcstr,s])
-                    elif re.compile("\.DISCUSSION...").search(s,1):
-                        tStamp = issueTime(s)
-                        secType = '2-discussion'
-                        fcstr = fdict['DISCUSSION']
-                        masterList.append([tStamp,secType,fcstr,s])
-                    elif re.compile("\.AVIATION...").search(s,1):
-                        tStamp = issueTime(s)
-                        secType = '3-aviation'
-                        fcstr = fdict['AVIATION']      
-                        masterList.append([tStamp,secType,fcstr,s])
-                    elif re.compile("Synopsis").search(s,1):
-                        tStamp = issueTime(s)
-                        justSyn = s.split('.SYNOPSIS...')
-                        s = '\n\n.SYNOPSIS...\n' + justSyn[1]
-                        secType = '1-synopsis'
-                        fcstr = fdict['SYNOPSIS']
-                        masterList.append([tStamp,secType,fcstr,s])
-                    else:
-                        pass
-
-
-    uniqueList = []
-    finalList = []
+    try:
+    	page = requests.get(url, timeout=5)
+    	soup = BeautifulSoup(page.content, 'html.parser')
+    	nws = soup.pre
+    except:
+        pass
+    try:
+        nwsStr = nws.string
+        success = True
+    except:
+        success = False
     
-    # eliminate duplicates
-    for i in range(0,len(masterList)):
-        sample = masterList[i]
-        check = sample[0] + sample[1]
-        if check not in uniqueList:
-            uniqueList.append(check)
-            finalList.append(sample)
+    if success:
+        getfid = nwsStr.split("$$")
+        fcstr = get_line(getfid[1],"DISCUSSION")
+        forecaster = fcstr.split("...")[1]
+        all_sections = nws.string.split("&&")
+        sections = all_sections[:-1]
+        for s in range (0,len(sections)):
+            section = sections[s]
+            if "DISCUSSION" in section:
+                issue_time = get_line_year(section)
+                info = [issue_time, section, forecaster]
+                #print(info)
+                discussions.append(info)
+
+                
+
+uniqueList = []
+
+separator = '  -------------  '
+
+
+fout = open("/home/tjt/public_html/public/afds.txt","w")
+
+for i in range(0,len(discussions)):
+    issue_time = discussions[i][0]
+    discussion = discussions[i][1]
+    forecaster = discussions[i][2]
+    
+    if issue_time not in uniqueList:
+        head = separator + forecaster + separator + "\n"
+        text = head + discussion
+        print(text)
+        fout.write(text)
+        uniqueList.append(issue_time)
+        #finalList.append(sample)
                                 
-    finalSorted = sorted(finalList, reverse=True)
-    
-    complete = open('complete.txt', 'w')
-    for j in range(0,len(finalSorted)):
-        thisText = finalSorted[j]
-        times = str(thisText[0])
-        secType = str(thisText[1])        
-        fcstr = str(thisText[2])
-        text = str(thisText[3])
-        
-        #if ((fcstr == 'TJT') and ((secType == '2-discussion') or (secType == '1-synopsis'))):
-        if (secType != '3-aviatondiscussion'):
-            justThese = "   " + separator + fcstr + separator + text
-            complete.write(justThese)
-    
-complete.close()
+
+
+fout.close()
+
