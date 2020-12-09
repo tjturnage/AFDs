@@ -6,9 +6,12 @@ Extracting AFDs and sorting by time
 import re
 import requests
 stns =['GRR','LAN','MKG']
-from datetime import datetime
-import os
+from datetime import datetime,timedelta
+#import os
 from bs4 import BeautifulSoup
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # https://mesonet.agron.iastate.edu/wx/afos/old.phtml
 
@@ -18,16 +21,23 @@ from bs4 import BeautifulSoup
 
 class TAF:
 
-
     def __init__(self, station, download=True, plot=True):
         self.station = station   # single station
         self.download = download
         self.plot = plot
-        self.now = datetime.utcnow()
+
+
+
+        self.columns = ['time', 'WDR', 'WSP','GST','VIS','FEW','SCT','BKN','OVC','VV']
+        #self.df = pd.DataFrame(index=self.idx,columns=self.columns)
+        self.taf_dict = {}
+
         self.get_taf()
+        self.clip_taf()
+        self.fh_zero()
+        
         self.parse_taf()
-
-
+        self.finalize()
 
     def get_taf(self):
         not_yet = True
@@ -41,12 +51,9 @@ class TAF:
                     self.nwsStr = nws.string
                     #print(self.nwsStr)
                     if 'TAF AMD' not in self.nwsStr:
-                        self.clip_taf()
-                    not_yet = False
+                        return
                 except:
                     pass
-
-
 
     def clip_taf(self):
         tmp2 = []
@@ -63,34 +70,153 @@ class TAF:
         else:
             print('could not clip!')
         return
+
+    def fh_zero(self):
+        self.now = datetime.utcnow()
+        dh = re.compile('(?<=\s)\d{5,}(?=Z\s)')
+        mdh = dh.search(self.txt)
+        if mdh is not None:
+            dy = int(mdh[0][0:2])
+            hr = int(mdh[0][2:4])
+            self.issue_dt = self.now.replace(day=dy, hour=hr, minute=0, second=0, microsecond=0)
+            self.fhzero = self.issue_dt + timedelta(hours=1)
+            self.idx = pd.date_range(self.fhzero, periods=80, freq='15Min')
+        else:
+            print('can not find init time!')
+        
+        return
+        
+    def get_time(self):
+        fm = re.compile('(?<=FM)\S{3,}(?=\s)')
+        mfm = fm.search(self.line)
+        if mfm is not None:
+            d = int(mfm[0][0:2])
+            h = int(mfm[0][2:4])
+            m = int(mfm[0][4:6])
+            vt = self.fhzero.replace(day=d, hour=h, minute=m)
+        else:
+            vt = self.fhzero
+        return vt
+
+    def get_vis(self):
+        self.vv = re.compile('(?<=\s)\d\s.{3}(?=SM)')   # '1 1/2SM
+        self.sm = re.compile('(?<=\s)\d(?=SM)')         # '3SM'
+
+        m = self.vv.search(str(self.line))
+        if m is not None:
+            v_el = m[0].split()
+            v1 = int(v_el[0])
+            self.frac = v_el[1]
+            v2 = self.fraction()
+            vis = v1 + v2
+        elif 'P6SM' in self.line:
+            vis = 7            
+        else:
+          ss = self.sm.search(str(self.line))
+          vis = int(ss[0])
+
+        def fraction(self):
+            n = self.frac.split('/')
+            return int(n[0])/int(n[1])
+        
+        return vis
+            
     
+    def get_layers(self):
+        self.fewm = re.compile('(?<=FEW)\d{3}')   # '1 1/2SM
+        mf = self.fewm.search(self.line)
+        self.sctm = re.compile('(?<=SCT)\d{3}')   # '1 1/2SM
+        ms = self.sctm.search(self.line)
+        self.bknm = re.compile('(?<=BKN)\d{3}')   # '1 1/2SM    
+        mb = self.bknm.search(self.line)                
+        self.ovcm = re.compile('(?<=OVC)\d{3}')   # '1 1/2SM    
+        ob = self.ovcm.search(self.line) 
+        self.vvm = re.compile('(?<=VV)\d{3}')   # '1 1/2SM
+        mvv = self.vvm.search(self.line)    
+        
+        if mf is not None:
+            few = int(mf[0])
+        else:
+            few = 0
+            
+        if ms is not None:
+            sct = int(ms[0])
+        else:
+            sct = 0
+            
+        if mb is not None:
+            bkn = int(mb[0])
+        else:
+            bkn = 0
+            
+        if ob is not None:
+            ovc = int(ob[0])
+        else:
+            ovc = 0
+            
+        if mvv is not None:
+            vv = int(mvv[0])
+        else:
+            vv = 0
+        
+        return few,sct,bkn,ovc,vv
+
+    def get_wind(self):
+        windsearch = re.compile('(?<=\s)\S{3,}(?=KT)')   # _25020G30_KT  _25015_KT
+        wm = windsearch.search(self.line)
+        if wm is not None:
+            wind = wm[0]
+            wdir = int(wind[0:3])
+        if 'G' in wind:
+            wind_split = wind.split['G']
+            wsp = int(wind_split[0])
+            g = int(wind_split[1])
+        else:
+            g = 0
+            wsp = int(wind[-2:])
+        return wdir, wsp, g
+
     def parse_taf(self):
-        for line in self.txt.splitlines():
-            for p in line.split():
-                print(p)
+        self.taf_arr = []
+        for self.line in self.txt.splitlines():
+            vt = self.get_time()
+            wdir, ws, g = self.get_wind()
+            vis = self.get_vis()
+            few, sct, bkn, ovc, vv = self.get_layers()
+            arr = [vt,wdir,ws,g,vis,few,sct,bkn,ovc,vv]
+            self.taf_arr.append(arr)
+
+        return 
+
+
+
+    def finalize(self):
+        self.df = pd.DataFrame(self.taf_arr, columns=self.columns)
+        self.df.set_index('time', inplace=True)
+        sns.set(rc={'figure.figsize':(11, 4)})
+        for p in ('BKN','OVC','VIS'):
+
+            ts = pd.Series(self.df[p])
+            self.full = ts.reindex(index=self.idx,method='ffill')
+        #s = self.df['wspd']
+            self.full.plot(linewidth=0.5)
+
+        # for col in self.full.columns:
+        #     self.ts = pd.Series(self.full[col])
+        #self.filled = self.full.fillna(method='ffill')
+        #     self.full[col] = self.filled.values
+            
         return
 
-                
-    # uniqueList = []
-    
-    # separator = '  -------------  '
-    
-    # fout = 'tafs_{}.txt'.format(self.station)
-    # fpath = os.path.join("/data/scripts",fout)
-    # f = open(fpath,"w")
-    
-    # for i in range(0,len(times)):
-    #     issue_time = times[i][0]
-    #     text = times[i][1]
-        
-    #     if issue_time not in uniqueList:
-    #         head = separator  + "\n"
-    #         text = head + text
-    #         print(text)
-    #         f.write(text)
-    #         uniqueList.append(issue_time)
-    #         #finalList.append(sample)
-            
-    # f.close()
+
+
 
 test = TAF('GRR')
+
+
+#datetime.datetime.timestamp(datetime.datetime.utcnow())
+
+#sns.set(rc={'figure.figsize':(11, 4)})
+#s = test.df['wspd']
+#print(s)
+#s.plot(linewidth=0.5)            
