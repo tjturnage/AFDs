@@ -6,12 +6,28 @@ Extracting AFDs and sorting by time
 import re
 import requests
 stns =['GRR','LAN','MKG']
+
+import matplotlib.dates as mdates
+from matplotlib.dates import DateFormatter
+from pandas.plotting import register_matplotlib_converters
+register_matplotlib_converters()
 from datetime import datetime,timedelta
-#import os
+import os, sys
 from bs4 import BeautifulSoup
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import seaborn as sns
+
+try:
+    os.listdir('/usr')
+    scripts_dir = '/data/scripts'
+except:
+    scripts_dir = 'C:/data/scripts'
+    sys.path.append(os.path.join(scripts_dir,'resources'))
+
+AFD_dir = os.path.join(scripts_dir,'AFDS')
 
 # https://mesonet.agron.iastate.edu/wx/afos/old.phtml
 
@@ -25,10 +41,12 @@ class TAF:
         self.station = station   # single station
         self.download = download
         self.plot = plot
+        self.sample = 'KDTW 092320Z 1000/1106 29004KT 6SM BR OVC028\nFM100200 32004KT 4SM BR SCT018 BKN030 OVC060\nFM100900 19004KT 3SM BR SCT008\nTEMPO 1009/1013 2SM BR BKN008\nFM101700 16008KT P6SM SCT150='
 
 
 
         self.columns = ['time', 'WDR', 'WSP','GST','VIS','FEW','SCT','BKN','OVC','VV']
+        self.plot_cols = ['WSP','GST','VIS', 'BKN']
         #self.df = pd.DataFrame(index=self.idx,columns=self.columns)
         self.taf_dict = {}
 
@@ -38,6 +56,8 @@ class TAF:
         
         self.parse_taf()
         self.finalize()
+        self.plot_taf()
+ 
 
     def get_taf(self):
         not_yet = True
@@ -49,6 +69,7 @@ class TAF:
                 try:
                     nws = soup.pre
                     self.nwsStr = nws.string
+
                     #print(self.nwsStr)
                     if 'TAF AMD' not in self.nwsStr:
                         return
@@ -56,6 +77,7 @@ class TAF:
                     pass
 
     def clip_taf(self):
+        self.nwsStr = self.sample
         tmp2 = []
         issue_dt = re.compile('[0-9]{6}Z')
         m = issue_dt.search(self.nwsStr)
@@ -99,24 +121,37 @@ class TAF:
         return vt
 
     def get_vis(self):
-        self.vv = re.compile('(?<=\s)\d\s.{3}(?=SM)')   # '1 1/2SM
-        self.sm = re.compile('(?<=\s)\d(?=SM)')         # '3SM'
+        self.v1 = re.compile('\d\/\d(?=SM)')   # _1/2_SM
+        fraction_match = self.v1.search(str(self.line))
 
-        m = self.vv.search(str(self.line))
-        if m is not None:
-            v_el = m[0].split()
-            v1 = int(v_el[0])
-            self.frac = v_el[1]
-            v2 = self.fraction()
-            vis = v1 + v2
+        self.v2 = re.compile('(?<=\s)\d\s.{3}(?=SM)')   # '_1_1/2SM
+        int_match = self.v2.search(str(self.line))
+
+        self.sm = re.compile('(?<=\s)\d(?=SM)')         # '3SM'
+        single_match = self.sm.search(str(self.line))
+
+        if fraction_match is not None:
+            fraction = fraction_match[0]
+            n = fraction.split('/')
+            frac = int(n[0])/int(n[1])
+
+            if int_match is not None:
+                vint = int_match[0]
+            else:
+                vint = 0
+
+            vis = vint + frac
+
         elif 'P6SM' in self.line:
             vis = 7            
         else:
-          ss = self.sm.search(str(self.line))
-          vis = int(ss[0])
+            if single_match is not None:
+                vis = int(single_match[0])
+            else:
+                print('no visibility found!')
 
         def fraction(self):
-            n = self.frac.split('/')
+            n = self.fraction.split('/')
             return int(n[0])/int(n[1])
         
         return vis
@@ -133,40 +168,53 @@ class TAF:
         ob = self.ovcm.search(self.line) 
         self.vvm = re.compile('(?<=VV)\d{3}')   # '1 1/2SM
         mvv = self.vvm.search(self.line)    
+        self.skcm = re.compile('(?<=\s)SKC')   # '1 1/2SM
+        mskc = self.skcm.search(self.line)    
         
+        if mskc is not None:
+            skc = True
+        else:
+            skc = False
+            
+            
+
+        nullval = 0.1
         if mf is not None:
             few = int(mf[0])
         else:
-            few = 0
+            few =  nullval
             
         if ms is not None:
             sct = int(ms[0])
         else:
-            sct = 0
+            sct =  nullval
             
         if mb is not None:
             bkn = int(mb[0])
         else:
-            bkn = 0
+            bkn = nullval
             
         if ob is not None:
             ovc = int(ob[0])
         else:
-            ovc = 0
+            ovc =  nullval
             
         if mvv is not None:
             vv = int(mvv[0])
         else:
-            vv = 0
+            vv =  nullval
         
-        return few,sct,bkn,ovc,vv
+        return skc,few,sct,bkn,ovc,vv
 
     def get_wind(self):
         windsearch = re.compile('(?<=\s)\S{3,}(?=KT)')   # _25020G30_KT  _25015_KT
         wm = windsearch.search(self.line)
         if wm is not None:
             wind = wm[0]
-            wdir = int(wind[0:3])
+            try:
+                wdir = int(wind[0:3])
+            except:
+                wdir = -1
         if 'G' in wind:
             wind_split = wind.split['G']
             wsp = int(wind_split[0])
@@ -179,12 +227,15 @@ class TAF:
     def parse_taf(self):
         self.taf_arr = []
         for self.line in self.txt.splitlines():
-            vt = self.get_time()
-            wdir, ws, g = self.get_wind()
-            vis = self.get_vis()
-            few, sct, bkn, ovc, vv = self.get_layers()
-            arr = [vt,wdir,ws,g,vis,few,sct,bkn,ovc,vv]
-            self.taf_arr.append(arr)
+            if 'TEMPO' in self.line:
+                pass
+            else:
+                vt = self.get_time()
+                wdir, ws, g = self.get_wind()
+                vis = self.get_vis()
+                skc, few, sct, bkn, ovc, vv = self.get_layers()
+                arr = [vt,wdir,ws,g,vis,few,sct,bkn,ovc,vv]
+                self.taf_arr.append(arr)
 
         return 
 
@@ -193,14 +244,16 @@ class TAF:
     def finalize(self):
         self.df = pd.DataFrame(self.taf_arr, columns=self.columns)
         self.df.set_index('time', inplace=True)
-        sns.set(rc={'figure.figsize':(11, 4)})
-        for p in ('BKN','OVC','VIS'):
-
-            ts = pd.Series(self.df[p])
-            self.full = ts.reindex(index=self.idx,method='ffill')
-        #s = self.df['wspd']
-            self.full.plot(linewidth=0.5)
-
+        self.few_ts = pd.Series(self.df['FEW'])
+        self.few_fill = self.few_ts.reindex(index=self.idx,method='ffill')
+        self.sct_ts = pd.Series(self.df['SCT'])        
+        self.sct_fill = self.sct_ts.reindex(index=self.idx,method='ffill')
+        self.bkn_ts = pd.Series(self.df['BKN'])
+        self.bkn_fill = self.bkn_ts.reindex(index=self.idx,method='ffill')
+        self.ovc_ts = pd.Series(self.df['OVC'])
+        self.ovc_fill = self.ovc_ts.reindex(index=self.idx,method='ffill')
+        self.vv_ts = pd.Series(self.df['VV'])
+        self.vv_fill = self.vv_ts.reindex(index=self.idx,method='ffill')
         # for col in self.full.columns:
         #     self.ts = pd.Series(self.full[col])
         #self.filled = self.full.fillna(method='ffill')
@@ -208,10 +261,61 @@ class TAF:
             
         return
 
+    
+    def plot_taf(self):
+        hours = mdates.HourLocator()
+        myFmt = DateFormatter("%d%h")
+        myFmt = DateFormatter("%d%b\n%HZ")
+        myFmt = DateFormatter("%I\n%p")
+        myFmt = DateFormatter("%I")    
+        
+
+        #fig_set = {'4':(14,13),'5':(14,15),'6':(12,18)}
+        #fig, axes = plt.subplots((1,1,sharex=False,subplot_kw={'xlim': (self.idx[0],self.idx[-1])})
+        #plt.subplots_adjust(bottom=0.1, left=0.17, top=0.9)
+        
+
+        
+        
+        #fig = plt.figure(tight_layout=True)
+        self.a = plt.subplot(111)
+        self.a.set_yscale("log")
+        #plt.suptitle(' TAF -- ')
+        #self.gs = gridspec.GridSpec(nrows=1, ncols=1, figure=fig)
+        #self.g = fig.add_subplot(self.gs[0,0])
+
+        #self.gs[0].set_ylabel(this_title, rotation=0)
+        self.a.plot(self.few_fill,linewidth=0,color='g',marker=".")
+        self.a.plot(self.sct_fill,linewidth=0,marker="$S$")
+        self.a.plot(self.bkn_fill,linewidth=0,color='r',marker="$B$")
+        self.a.plot(self.ovc_fill,linewidth=0,color='r',marker="$O$")
+        plt.ylim( (pow(10,1),pow(10,2.5)) )
+        #self.g.ylim(0, 250)
 
 
 
-test = TAF('GRR')
+
+        
+        self.image_file = self.station + '_TAF.png'
+        self.image_dst_path = os.path.join(AFD_dir,self.image_file)
+        plt.yscale("log")
+        plt.show()
+        #plt.savefig(self.image_dst_path,format='png')
+        #plt.close()
+        return
+
+
+test = TAF('IND')
+
+
+"""
+KDTW 092320Z 1000/1106 29004KT 6SM BR OVC028
+  FM100200 32004KT 4SM BR SCT018
+  FM100900 19004KT 3SM BR SCT008
+  TEMPO 1009/1013 2SM BR BKN008
+  FM101700 16008KT P6SM SCT150
+"""
+
 
 
 #datetime.datetime.timestamp(datetime.datetime.utcnow())
