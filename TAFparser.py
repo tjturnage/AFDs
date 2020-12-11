@@ -9,6 +9,8 @@ stns =['GRR','LAN','MKG']
 
 import matplotlib.dates as mdates
 from matplotlib.dates import DateFormatter
+
+
 from pandas.plotting import register_matplotlib_converters
 register_matplotlib_converters()
 from datetime import datetime,timedelta
@@ -20,6 +22,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import seaborn as sns
 
+
 try:
     os.listdir('/usr')
     scripts_dir = '/data/scripts'
@@ -27,6 +30,7 @@ except:
     scripts_dir = 'C:/data/scripts'
     sys.path.append(os.path.join(scripts_dir,'resources'))
 
+#from my_nbm_functions import my_prods
 AFD_dir = os.path.join(scripts_dir,'AFDS')
 
 # https://mesonet.agron.iastate.edu/wx/afos/old.phtml
@@ -37,15 +41,17 @@ AFD_dir = os.path.join(scripts_dir,'AFDS')
 
 class TAF:
 
-    def __init__(self, station, download=True, plot=True):
-        self.station = station   # single station
+    def __init__(self, station, issuedby, download=True, plot=True):
+        self.station = station         # the issuing office, not the TAF site
+        self.issuedby = issuedby    # the TAF site, not the issuing office 
+                                    # welcome to opposite world !!
         self.download = download
         self.plot = plot
         self.sample = 'KDTW 092320Z 1000/1106 29004KT 6SM BR OVC028\nFM100200 32004KT 4SM BR SCT018 BKN030 OVC060\nFM100900 19004KT 3SM BR SCT008\nTEMPO 1009/1013 2SM BR BKN008\nFM101700 16008KT P6SM SCT150='
 
 
 
-        self.columns = ['time', 'WDR', 'WSP','GST','VIS','FEW','SCT','BKN','OVC','VV']
+        self.columns = ['time', 'WDR', 'WSP','GST','VIS','FEW','SCT','BKN','OVC','VV', 'VCAT', 'CCAT']
         self.plot_cols = ['WSP','GST','VIS', 'BKN']
         #self.df = pd.DataFrame(index=self.idx,columns=self.columns)
         self.taf_dict = {}
@@ -63,8 +69,9 @@ class TAF:
         not_yet = True
         for ver in range(1,20):
             if not_yet:
-                url = "https://forecast.weather.gov/product.php?site=GRR&issuedby={}&product=TAF&format=ci&version={}&glossary=0".format(self.station,ver)
-                page = requests.get(url, timeout=2)
+                url = "https://forecast.weather.gov/product.php?site={}&issuedby={}&product=TAF&format=ci&version={}&glossary=0".format(self.issuedby,self.station,ver)
+                print(url)
+                page = requests.get(url, timeout=4)
                 soup = BeautifulSoup(page.content, 'html.parser')
                 try:
                     nws = soup.pre
@@ -77,7 +84,7 @@ class TAF:
                     pass
 
     def clip_taf(self):
-        self.nwsStr = self.sample
+        #self.nwsStr = self.sample
         tmp2 = []
         issue_dt = re.compile('[0-9]{6}Z')
         m = issue_dt.search(self.nwsStr)
@@ -102,7 +109,7 @@ class TAF:
             hr = int(mdh[0][2:4])
             self.issue_dt = self.now.replace(day=dy, hour=hr, minute=0, second=0, microsecond=0)
             self.fhzero = self.issue_dt + timedelta(hours=1)
-            self.idx = pd.date_range(self.fhzero, periods=80, freq='15Min')
+            self.idx = pd.date_range(self.fhzero, periods=30, freq='30Min')
         else:
             print('can not find init time!')
         
@@ -153,8 +160,30 @@ class TAF:
         def fraction(self):
             n = self.fraction.split('/')
             return int(n[0])/int(n[1])
-        
-        return vis
+
+        if  vis < 0.5:
+            vcat = 1
+
+        elif vis < 1:
+            vcat = 2
+
+        elif vis < 2:
+            vcat = 3
+
+        elif vis < 3:
+            vcat = 4
+
+        elif vis <= 5:
+            vcat = 6
+
+        elif vis == 6:
+            vcat = 7
+
+        else:
+            vcat = 9
+            
+ 
+        return vcat, vis
             
     
     def get_layers(self):
@@ -176,9 +205,7 @@ class TAF:
         else:
             skc = False
             
-            
-
-        nullval = 0.1
+        nullval = 0
         if mf is not None:
             few = int(mf[0])
         else:
@@ -204,7 +231,34 @@ class TAF:
         else:
             vv =  nullval
         
-        return skc,few,sct,bkn,ovc,vv
+        #print(bkn,ovc)
+        
+        if ovc > bkn:
+            cig_test = ovc
+        else:
+            cig_test = bkn
+
+        if cig_test > nullval:
+            if cig_test < 2:
+                ccat = 1
+            elif cig_test <= 4:
+                ccat = 2
+            elif cig_test < 7:
+                ccat = 3
+            elif cig_test < 10:
+                ccat = 4
+            elif cig_test < 20:
+                ccat = 5
+            elif cig_test <= 30:
+                ccat = 6
+            elif cig_test <= 60:
+                ccat = 7
+            elif cig_test <= 120:
+                ccat = 8
+        else:
+            ccat = 9
+        
+        return ccat, skc,few,sct,bkn,ovc,vv
 
     def get_wind(self):
         windsearch = re.compile('(?<=\s)\S{3,}(?=KT)')   # _25020G30_KT  _25015_KT
@@ -232,9 +286,9 @@ class TAF:
             else:
                 vt = self.get_time()
                 wdir, ws, g = self.get_wind()
-                vis = self.get_vis()
-                skc, few, sct, bkn, ovc, vv = self.get_layers()
-                arr = [vt,wdir,ws,g,vis,few,sct,bkn,ovc,vv]
+                vcat, vis = self.get_vis()
+                ccat, skc, few, sct, bkn, ovc, vv = self.get_layers()
+                arr = [vt,wdir,ws,g,vis,few,sct,bkn,ovc,vv,vcat,ccat]
                 self.taf_arr.append(arr)
 
         return 
@@ -254,58 +308,64 @@ class TAF:
         self.ovc_fill = self.ovc_ts.reindex(index=self.idx,method='ffill')
         self.vv_ts = pd.Series(self.df['VV'])
         self.vv_fill = self.vv_ts.reindex(index=self.idx,method='ffill')
-        # for col in self.full.columns:
-        #     self.ts = pd.Series(self.full[col])
-        #self.filled = self.full.fillna(method='ffill')
-        #     self.full[col] = self.filled.values
-            
+
+        self.ccat_ts = pd.Series(self.df['CCAT'])
+        self.ccat_fill = self.ccat_ts.reindex(index=self.idx,method='ffill')
+
+        self.vcat_ts = pd.Series(self.df['VCAT'])
+        self.vcat_fill = self.vcat_ts.reindex(index=self.idx,method='ffill')
+        
         return
 
     
     def plot_taf(self):
         hours = mdates.HourLocator()
-        myFmt = DateFormatter("%d%h")
-        myFmt = DateFormatter("%d%b\n%HZ")
-        myFmt = DateFormatter("%I\n%p")
-        myFmt = DateFormatter("%I")    
+        # myFmt = DateFormatter("%d%h")
+        # myFmt = DateFormatter("%d%b\n%HZ")
+        # myFmt = DateFormatter("%I\n%p")
+        # myFmt = DateFormatter("%I")    
+        myFmt = DateFormatter("%d%H")
         
+        #cig_labels = ['<200','<500','<700','<1K','<2K', '<3K', '<6K', '<12K',''],
+        #vis_labels= ['0.25','0.5','1.0','2.0','','3', '6', '>6', '' ],
+        fig, ax1 = plt.subplots(figsize=(12,8))
+        ax1.set_xticks(self.idx)
+        ax1.xaxis.set_major_locator(hours)
+        #ax1.xaxis.set_major_formatter(myFmt)
+        color = 'tab:red'
+        ax1.set_ylabel('CIG', color=color)
+        ax1.plot(self.ccat_fill,color=color,linewidth=0,marker=11, markersize=20)
+        ax1.tick_params(axis='y', labelcolor=color)
+        ax1.set(yticks = [0, 1, 2, 3, 4, 5, 6, 7, 8 ,9])
+        ax1.set(yticklabels = ['','<200','<500','<700','<1K','<2K', '<3K', '<6K', '<12K',''])
+        plt.ylim(0,9)
+        plt.grid(True)
 
-        #fig_set = {'4':(14,13),'5':(14,15),'6':(12,18)}
-        #fig, axes = plt.subplots((1,1,sharex=False,subplot_kw={'xlim': (self.idx[0],self.idx[-1])})
-        #plt.subplots_adjust(bottom=0.1, left=0.17, top=0.9)
-        
+        ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
 
-        
-        
-        #fig = plt.figure(tight_layout=True)
-        self.a = plt.subplot(111)
-        self.a.set_yscale("log")
-        #plt.suptitle(' TAF -- ')
-        #self.gs = gridspec.GridSpec(nrows=1, ncols=1, figure=fig)
-        #self.g = fig.add_subplot(self.gs[0,0])
-
-        #self.gs[0].set_ylabel(this_title, rotation=0)
-        self.a.plot(self.few_fill,linewidth=0,color='g',marker=".")
-        self.a.plot(self.sct_fill,linewidth=0,marker="$S$")
-        self.a.plot(self.bkn_fill,linewidth=0,color='r',marker="$B$")
-        self.a.plot(self.ovc_fill,linewidth=0,color='r',marker="$O$")
-        plt.ylim( (pow(10,1),pow(10,2.5)) )
-        #self.g.ylim(0, 250)
+        ax2.set_xticks(self.idx)
+        ax2.xaxis.set_major_locator(hours)
+        ax2.xaxis.set_major_formatter(myFmt)
+        color = 'tab:blue'
+        ax2.set_ylabel('VIS', color=color)
+        ax2.plot(self.vcat_fill,color=color,linewidth=0,marker=10, markersize=15)
+        ax2.tick_params(axis='y', labelcolor=color)
+        ax2.set(yticks = [0, 1, 2, 3, 4, 5, 6, 7, 8 ,9])
+        ax2.set(yticklabels = ['','< 1/2', '< 1', '< 2', '< 3', '< 4', '< 5', '6', 'P6', ''])
+        plt.ylim(0,9)        
+        plt.grid(True)
 
 
 
-
-        
         self.image_file = self.station + '_TAF.png'
         self.image_dst_path = os.path.join(AFD_dir,self.image_file)
-        plt.yscale("log")
         plt.show()
         #plt.savefig(self.image_dst_path,format='png')
         #plt.close()
         return
 
 
-test = TAF('IND')
+test = TAF('ALS','PUB')
 
 
 """
@@ -316,6 +376,13 @@ KDTW 092320Z 1000/1106 29004KT 6SM BR OVC028
   FM101700 16008KT P6SM SCT150
 """
 
+"""
+1: {'c': '<002',
+    'v': '<1/2'}
+2: {'c': '<002',
+    'v': '<1/2'}
+
+"""    
 
 
 #datetime.datetime.timestamp(datetime.datetime.utcnow())
