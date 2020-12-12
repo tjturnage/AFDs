@@ -39,6 +39,32 @@ AFD_dir = os.path.join(scripts_dir,'AFDS')
 #url = "https://kamala.cod.edu/mi/latest.fxus63.KGRR.html"
 #url = "https://forecast.weather.gov/product.php?site=GRR&issuedby=GRR&product=AFD&format=ci&version=1&glossary=0"
 
+
+
+taf_elements = {'vis': {'1':1, '2':2, '3':3, '4':4, '5':4, '6':4, '7':4, '8':4, '9':4},
+                'few': {'1':3, '2':4, '3':5, '4':6, '5':7, '6':8, '7':9, '8':9, '9':9},
+                'sct': {'1':3, '2':4, '3':5, '4':6, '5':7, '6':8, '7':9, '8':9, '9':9},
+                'bkn': {'1':3, '2':4, '3':5, '4':6, '5':7, '6':8, '7':9, '8':9, '9':9},
+                'ovc': {'1':3, '2':4, '3':5, '4':6, '5':7, '6':8, '7':9, '8':9, '9':9},
+                'vv': {'1':3, '2':4, '3':5, '4':6, '5':7, '6':8, '7':9, '8':9, '9':9},
+                'vstr': {'1':3, '2':4, '3':5, '4':6, '5':7, '6':8, '7':9, '8':9, '9':9},
+                'vcat': {'level':{'1':1, '2':2, '3':3, '4':4, '5':4, '6':4, '7':4, '8':4, '9':4}},
+                'ccat': {'level':{'1':4, '2':5, '3':6, '4':7, '5':8, '6':9, '7':10, '8':10, '9':10}}
+                }
+
+cat_colors = {'1': (1, 0, 1, 1),
+              '2': (1, 0, 0.6, 1),
+              '3': (1, 0, 0.2, 1),
+              '4': (1, 0, 0, 1),
+              '5': (1, 0.5, 0.2, 1),
+              '6': (0.4, 0.7, 1, 1),
+              '7': (0.3, 0.6, 0.3, 1),
+              '8': (0.2, 0.8, 0.2, 1),
+              '9': (0.1, 0.9, 0.1, 1),
+              '10': (0, 1, 0, 1),              
+              }
+
+
 class TAF:
 
     def __init__(self, station, issuedby, download=True, plot=True):
@@ -51,8 +77,9 @@ class TAF:
 
 
 
-        self.columns = ['time', 'WDR', 'WSP','GST','VIS','FEW','SCT','BKN','OVC','VV', 'VCAT', 'CCAT']
-        self.plot_cols = ['WSP','GST','VIS', 'BKN']
+        self.columns = ['time','WDR','WSP','GST','VIS',
+                        'FEW','SCT','BKN','OVC','VV',
+                        'VCAT','CCAT','VSTR']
         #self.df = pd.DataFrame(index=self.idx,columns=self.columns)
         self.taf_dict = {}
 
@@ -62,8 +89,9 @@ class TAF:
         
         self.parse_taf()
         self.finalize()
-        self.plot_taf()
+        self.plot_xy()
  
+
 
     def get_taf(self):
         not_yet = True
@@ -109,7 +137,7 @@ class TAF:
             hr = int(mdh[0][2:4])
             self.issue_dt = self.now.replace(day=dy, hour=hr, minute=0, second=0, microsecond=0)
             self.fhzero = self.issue_dt + timedelta(hours=1)
-            self.idx = pd.date_range(self.fhzero, periods=30, freq='30Min')
+            self.idx = pd.date_range(self.fhzero, periods=15, freq='60Min')
         else:
             print('can not find init time!')
         
@@ -129,41 +157,44 @@ class TAF:
 
     def get_vis(self):
         self.v1 = re.compile('\d\/\d(?=SM)')   # _1/2_SM
-        fraction_match = self.v1.search(str(self.line))
+        vis_frac_match = self.v1.search(str(self.line))
 
-        self.v2 = re.compile('(?<=\s)\d\s.{3}(?=SM)')   # '_1_1/2SM
-        int_match = self.v2.search(str(self.line))
+        self.v2 = re.compile('(?<=\s)\d(?=\s\d/\dSM)')   # '_1_1/2SM
+        vis_lone_int_match = self.v2.search(str(self.line))
 
         self.sm = re.compile('(?<=\s)\d(?=SM)')         # '3SM'
-        single_match = self.sm.search(str(self.line))
+        vis_normal_int_match = self.sm.search(str(self.line))
 
-        if fraction_match is not None:
-            fraction = fraction_match[0]
-            n = fraction.split('/')
-            frac = int(n[0])/int(n[1])
+        if vis_frac_match is not None:
+            fraction_str = vis_frac_match[0]
+            n = fraction_str.split('/')
+            fraction = int(n[0])/int(n[1])
 
-            if int_match is not None:
-                vint = int_match[0]
+            
+            if vis_lone_int_match is not None:
+                lone_int_str = vis_lone_int_match[0]
+                lone_int = float(lone_int_str)
             else:
-                vint = 0
+                lone_int_str = ''
+                lone_int = 0
 
-            vis = vint + frac
+            vis_str = lone_int_str + ' ' + fraction_str
+            vis = lone_int + fraction
 
         elif 'P6SM' in self.line:
-            vis = 7            
+            vis = 7
+            vis_str = 'P6'
         else:
-            if single_match is not None:
-                vis = int(single_match[0])
+            if vis_normal_int_match is not None:
+                vis_str = vis_normal_int_match[0]
+                vis = int(vis_str)
+
             else:
                 print('no visibility found!')
 
-        def fraction(self):
-            n = self.fraction.split('/')
-            return int(n[0])/int(n[1])
-
         if  vis < 0.5:
             vcat = 1
-
+            
         elif vis < 1:
             vcat = 2
 
@@ -174,109 +205,116 @@ class TAF:
             vcat = 4
 
         elif vis <= 5:
-            vcat = 6
+            vcat = 5
 
         elif vis == 6:
-            vcat = 7
+            vcat = 6
 
         else:
-            vcat = 9
-            
- 
-        return vcat, vis
+            vcat = 7
+
+        return str(vcat), vis, vis_str
             
     
     def get_layers(self):
-        self.fewm = re.compile('(?<=FEW)\d{3}')   # '1 1/2SM
-        mf = self.fewm.search(self.line)
-        self.sctm = re.compile('(?<=SCT)\d{3}')   # '1 1/2SM
-        ms = self.sctm.search(self.line)
-        self.bknm = re.compile('(?<=BKN)\d{3}')   # '1 1/2SM    
-        mb = self.bknm.search(self.line)                
-        self.ovcm = re.compile('(?<=OVC)\d{3}')   # '1 1/2SM    
-        ob = self.ovcm.search(self.line) 
-        self.vvm = re.compile('(?<=VV)\d{3}')   # '1 1/2SM
-        mvv = self.vvm.search(self.line)    
-        self.skcm = re.compile('(?<=\s)SKC')   # '1 1/2SM
-        mskc = self.skcm.search(self.line)    
-        
-        if mskc is not None:
-            skc = True
-        else:
-            skc = False
-            
-        nullval = 0
-        if mf is not None:
-            few = int(mf[0])
-        else:
-            few =  nullval
-            
-        if ms is not None:
-            sct = int(ms[0])
-        else:
-            sct =  nullval
-            
-        if mb is not None:
-            bkn = int(mb[0])
-        else:
-            bkn = nullval
-            
-        if ob is not None:
-            ovc = int(ob[0])
-        else:
-            ovc =  nullval
-            
-        if mvv is not None:
-            vv = int(mvv[0])
-        else:
-            vv =  nullval
-        
-        #print(bkn,ovc)
-        
-        if ovc > bkn:
-            cig_test = ovc
-        else:
-            cig_test = bkn
+        #self.skcm = re.compile('(?<=\s)SKC')# '1 1/2SM
+        #mskc = self.skcm.search(self.line)   
 
-        if cig_test > nullval:
-            if cig_test < 2:
-                ccat = 1
-            elif cig_test <= 4:
-                ccat = 2
-            elif cig_test < 7:
-                ccat = 3
-            elif cig_test < 10:
-                ccat = 4
-            elif cig_test < 20:
-                ccat = 5
-            elif cig_test <= 30:
-                ccat = 6
-            elif cig_test <= 60:
-                ccat = 7
-            elif cig_test <= 120:
-                ccat = 8
+        #self.skcm = re.compile('(?<=\s)SKC')# '1 1/2SM
+
+        self.fewm = re.compile('FEW\d{3}')   # '1 1/2SM
+        few_match = self.fewm.search(self.line)
+
+        self.sctm = re.compile('SCT\d{3}')   # '1 1/2SM
+        sct_match = self.sctm.search(self.line)
+
+        self.bknm = re.compile('BKN\d{3}')   # '1 1/2SM    
+        bkn_match = self.bknm.search(self.line)                
+
+        self.ovcm = re.compile('OVC\d{3}')   # '1 1/2SM    
+        ovc_match = self.ovcm.search(self.line)    
+
+
+        self.vvm = re.compile('VV\d{3}')   # '1 1/2SM
+        vv_match = self.vvm.search(self.line)    
+ 
+        
+        if few_match is not None:
+            few_str = few_match[0]
+        else:
+            few_str = ''
+
+        if sct_match is not None:
+            sct_str = sct_match[0]
+        else:
+            sct_str = ''
+            
+        if bkn_match is not None:
+            bkn_str = bkn_match[0]
+        else:
+            bkn_str = ''
+
+        if ovc_match is not None:
+            ovc_str = ovc_match[0]
+        else:
+            ovc_str = ''            
+
+        if vv_match is not None:
+            vv_str = vv_match[0]
+        else:
+            vv_str = ''        
+
+        if vv_str != '':
+            cig = int(vv_str[2:])
+        elif bkn_str != '':
+            cig = int(bkn_str[3:])
+        elif ovc_str != '':
+            cig = int(ovc_str[3:])   
+        else:
+            cig = 999
+            
+
+        if cig < 2:
+            ccat = 1
+        elif cig <= 4:
+            ccat = 2
+        elif cig < 7:
+            ccat = 3
+        elif cig < 10:
+            ccat = 4
+        elif cig < 20:
+            ccat = 5
+        elif cig <= 30:
+            ccat = 6
+        elif cig <= 60:
+            ccat = 7
+        elif cig <= 120:
+            ccat = 8
         else:
             ccat = 9
+
         
-        return ccat, skc,few,sct,bkn,ovc,vv
+        return few_str, sct_str, bkn_str, ovc_str, vv_str, str(ccat)
 
     def get_wind(self):
         windsearch = re.compile('(?<=\s)\S{3,}(?=KT)')   # _25020G30_KT  _25015_KT
         wm = windsearch.search(self.line)
         if wm is not None:
             wind = wm[0]
+
             try:
                 wdir = int(wind[0:3])
             except:
                 wdir = -1
-        if 'G' in wind:
-            wind_split = wind.split['G']
-            wsp = int(wind_split[0])
-            g = int(wind_split[1])
-        else:
-            g = 0
-            wsp = int(wind[-2:])
+            if 'G' in wind:
+                wsp = int(wind[3:5])
+                g = int(wind[-2:])
+            else:
+                g = 0
+                wsp = int(wind[-2:])
         return wdir, wsp, g
+
+
 
     def parse_taf(self):
         self.taf_arr = []
@@ -286,9 +324,9 @@ class TAF:
             else:
                 vt = self.get_time()
                 wdir, ws, g = self.get_wind()
-                vcat, vis = self.get_vis()
-                ccat, skc, few, sct, bkn, ovc, vv = self.get_layers()
-                arr = [vt,wdir,ws,g,vis,few,sct,bkn,ovc,vv,vcat,ccat]
+                vcat, vis, vstr = self.get_vis()
+                few, sct, bkn, ovc, vv, ccat = self.get_layers()
+                arr = [vt,wdir,ws,g,vis,few,sct,bkn,ovc,vv,vcat,ccat,vstr]
                 self.taf_arr.append(arr)
 
         return 
@@ -300,22 +338,103 @@ class TAF:
         self.df.set_index('time', inplace=True)
         self.few_ts = pd.Series(self.df['FEW'])
         self.few_fill = self.few_ts.reindex(index=self.idx,method='ffill')
+        taf_elements['few']['data'] = self.few_fill.values.tolist()
+
         self.sct_ts = pd.Series(self.df['SCT'])        
         self.sct_fill = self.sct_ts.reindex(index=self.idx,method='ffill')
+        taf_elements['sct']['data'] = self.sct_fill.values.tolist()
+
         self.bkn_ts = pd.Series(self.df['BKN'])
         self.bkn_fill = self.bkn_ts.reindex(index=self.idx,method='ffill')
+        taf_elements['bkn']['data'] = self.bkn_fill.values.tolist()
+
+
         self.ovc_ts = pd.Series(self.df['OVC'])
         self.ovc_fill = self.ovc_ts.reindex(index=self.idx,method='ffill')
+        taf_elements['ovc']['data'] = self.ovc_fill.values.tolist()
+
         self.vv_ts = pd.Series(self.df['VV'])
         self.vv_fill = self.vv_ts.reindex(index=self.idx,method='ffill')
+        taf_elements['vv']['data'] = self.vv_fill.values.tolist()
 
         self.ccat_ts = pd.Series(self.df['CCAT'])
         self.ccat_fill = self.ccat_ts.reindex(index=self.idx,method='ffill')
+        taf_elements['ccat']['data'] = self.ccat_fill.values.tolist()
+        taf_elements['bkn']['cat'] = self.ccat_fill.values.tolist()
+        taf_elements['ovc']['cat'] = self.ccat_fill.values.tolist()
+
 
         self.vcat_ts = pd.Series(self.df['VCAT'])
         self.vcat_fill = self.vcat_ts.reindex(index=self.idx,method='ffill')
-        
+        taf_elements['vcat']['data'] = self.vcat_fill.values.tolist()
+ 
+
+        self.vis_ts = pd.Series(self.df['VIS'])
+        self.vis_fill = self.vis_ts.reindex(index=self.idx,method='ffill')
+        taf_elements['vis']['data'] = self.vis_fill.values.tolist()      
+
+        self.vstr_ts = pd.Series(self.df['VSTR'])
+        self.vstr_fill = self.vstr_ts.reindex(index=self.idx,method='ffill')
+        taf_elements['vstr']['data'] = self.vstr_fill.values.tolist()      
+
+
         return
+
+
+    def render(self):
+        if self.p == 'vstr':
+            cats = taf_elements['vcat']['data']
+            levels= taf_elements['vcat']['level']
+        else:
+            cats = taf_elements['ccat']['data']            
+            levels = taf_elements['ccat']['level']            
+
+        for i in range(0,15):
+            print(self.ts[i])
+
+            print(i,self.ts[i])
+            cat = cats[i]
+            level = levels[cat]
+            col = cat_colors[cat]
+            
+            plt.text(i,level,str(self.ts[i]), dict(size=10),color=col)
+        return
+        
+
+    def plot_xy(self):
+        x = np.arange(0,len(self.idx)+1)
+        #y = np.arange(1,13)
+
+        fig, ax1 = plt.subplots(figsize=(12,8))
+        ax1.set_xticks(x)
+        ax1.set_ylabel('CIG')
+
+        self.stuff = ['few','sct','bkn','ovc','vstr']
+        self.vcat_ts = taf_elements['vcat']['data']
+        self.ccat_ts = taf_elements['ccat']['data']
+        for self.p in self.stuff:
+
+            self.el = taf_elements[self.p]
+            #print(taf_elements['ovc']['cat'])
+
+
+            self.ts = taf_elements[self.p]['data']
+            print(self.ts)
+            #self.level = 3#taf_elements[p]['level']
+            self.render()
+
+
+        plt.ylim(1,12)
+
+
+        
+        self.image_file = self.station + '_TAF.png'
+        self.image_dst_path = os.path.join(AFD_dir,self.image_file)
+        plt.show()
+        #plt.savefig(self.image_dst_path,format='png')
+        #plt.close()
+        return
+
 
     
     def plot_taf(self):
@@ -325,9 +444,7 @@ class TAF:
         # myFmt = DateFormatter("%I\n%p")
         # myFmt = DateFormatter("%I")    
         myFmt = DateFormatter("%d%H")
-        
-        #cig_labels = ['<200','<500','<700','<1K','<2K', '<3K', '<6K', '<12K',''],
-        #vis_labels= ['0.25','0.5','1.0','2.0','','3', '6', '>6', '' ],
+
         fig, ax1 = plt.subplots(figsize=(12,8))
         ax1.set_xticks(self.idx)
         ax1.xaxis.set_major_locator(hours)
@@ -365,7 +482,7 @@ class TAF:
         return
 
 
-test = TAF('ALS','PUB')
+test = TAF('TVC','APX')     # TAF, WFO
 
 
 """
