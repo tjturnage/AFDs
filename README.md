@@ -1,4 +1,4 @@
-![](https://github.com/tjturnage/AFDs/blob/master/colab-icon.svg?raw=true)
+![](https://github.com/tjturnage/AFDs/blob/master/images/colab-icon.svg?raw=true)
 
 # AFDs
 
