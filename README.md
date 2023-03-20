@@ -1,13 +1,13 @@
 
-Run this AFD script in Google Colab:
+Navigate to this page:   
 https://github.com/tjturnage/AFDs/blob/master/AFDs.ipynb
 
-On that page, click this icon:
+Click this icon on that page:
 ![svg](https://github.com/tjturnage/AFDs/blob/master/images/colab-icon.svg?raw=true)
 
-You'll get a warning that it's an external file that you may disregard.
+You may get a warning about opening an external file that you can safely ignore.
 
-In the notebook, run each "cell" in sequence by clicking each cell's arrow on the left side and waiting for the green checkmark:  
+A Google Colab notebook will open. In the notebook, run each "cell" in sequence by clicking that cell's arrow on the left side and waiting for the green checkmark to show it ran successfully:  
 ![svg](https://github.com/tjturnage/AFDs/blob/master/images/run_complete_crop.png?raw=true)
 
 Once the full script has completed, you can view the "afd.txt" file that was created by clicking on the folder icon shown at the botom of the image below:   
