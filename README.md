@@ -1,3 +1,5 @@
+![SVG icon](https://github.com/tjturnage/AFDs/blob/master/colab-icon.svg?raw=true)
+
 # AFDs
 
 * Organizes a list of recent AFDs issued by an office for service assessment
